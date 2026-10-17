@@ -7,7 +7,7 @@ import type { LinkState, RoomHealth, VoiceMember } from "@/lib/space/voice-room"
 import { VoiceRoom, primeAudio } from "@/lib/space/voice-room";
 import type { AnonymousListener, Member, SpaceOk, SpaceResult } from "@/lib/space/types";
 import { AnonymousSeat, Face, LevelBars, LiveMark, OpeningLine, RoomFrame, SeatCount, SourceLink } from "./chrome";
-import { ChatComposer, ChatProvider, ChatTranscript } from "./room-chat";
+import { ChatProvider, ChatToggle, MessagePanel, MusicDock } from "./room-chat";
 
 type Phase = "joining" | "in" | "full" | "kicked" | "left" | "error";
 
@@ -767,7 +767,6 @@ export function LiveRoom() {
                 onManage={onManage}
               />
             </div>
-            <ChatTranscript />
           </div>
 
           {channelOpen ? (
@@ -889,9 +888,10 @@ export function LiveRoom() {
           ) : null}
 
           <div className="relative z-10 shrink-0 border-t border-line bg-bg safe-bottom mb-16">
-            <ChatComposer />
+            <MusicDock />
+            <MessagePanel />
             <div className="talk-guard flex flex-col items-center gap-4 px-5 pt-4 pb-2">
-              <div className="flex items-center justify-center gap-3">
+              <div className="flex flex-wrap items-center justify-center gap-2">
                 {showUnmute ? (
                   <button type="button" className="truncate text-sm text-muted" onClick={() => releaseRoom()}>
                     {status}
@@ -913,6 +913,7 @@ export function LiveRoom() {
                     Mute room
                   </button>
                 ) : null}
+                <ChatToggle />
               </div>
               {micOn || meterLevel > 0 ? <LevelBars level={meterLevel} /> : null}
               <div className="flex items-center justify-center gap-8">

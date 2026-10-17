@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MicOff, Volume2 } from "lucide-react";
 import { AnonymousSeat, Face, JoinConversationButton, LevelBars, LiveMark, OpeningLine, RoomFrame, SourceLink } from "@/components/space/chrome";
-import { ChatComposer, ChatProvider, ChatTranscript } from "@/components/space/room-chat";
+import { ChatProvider, ChatToggle, MessagePanel, MusicDock } from "@/components/space/room-chat";
 import { MAX_LISTENERS, SPACE_STATUS, SPACE_TITLE } from "@/lib/space/constants";
 import { primeAudio } from "@/lib/space/voice-room";
 import type { LinkState, RoomHealth, VoiceMember } from "@/lib/space/voice-room";
@@ -284,11 +284,14 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
             />
           ) : null}
         </div>
-        <ChatTranscript />
         </div>
         <div className="relative z-10 shrink-0 border-t border-line bg-bg safe-bottom mb-16">
-          <ChatComposer />
+          <MusicDock />
+          <MessagePanel />
           <div className="talk-guard px-5 pt-3">
+          <div className="mb-3 flex justify-center">
+            <ChatToggle />
+          </div>
           {needGesture ? (
             <button
               type="button"
