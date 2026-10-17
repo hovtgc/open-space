@@ -6,7 +6,7 @@
     "type": "git",
     "url": "git+https://github.com/hovtgc/open-space.git"
   },
-  "homepage": "https://github.com/hovtgc/open-space",
+  "homepage": "https://async-spaces.grok.me",
   "sideEffects": false,
   "type": "module",
   "overrides": {

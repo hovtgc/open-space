@@ -2,7 +2,9 @@
 
 Open audio room. Not recorded.
 
-**The web app is the demo.** One room, open all the time. You can hear it without an account. Sign in with X to request a mic.
+**The web app is the demo:** [async-spaces.grok.me](https://async-spaces.grok.me)
+
+One room, open all the time. You can hear it without an account. Sign in with X to request a mic.
 
 ![The live room](docs/demo.jpg)
 
