@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { User, Users, Volume2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { User, Users, X } from "lucide-react";
 import { signIn } from "@/lib/auth/client";
 import { SPACE_STATUS, SPACE_TITLE, SOURCE_URL } from "@/lib/space/constants";
 import { portraitSrc } from "@/lib/space/identity";
@@ -23,7 +24,7 @@ export function RoomFrame({ children }: { children: ReactNode }) {
   }, []);
   return (
     <div className="flex h-dvh justify-center overflow-hidden bg-bg text-fg">
-      <div className="flex h-dvh w-full max-w-lg flex-col md:border-x md:border-line">{children}</div>
+      <div className="relative flex h-dvh w-full max-w-lg flex-col md:border-x md:border-line">{children}</div>
     </div>
   );
 }
@@ -106,22 +107,6 @@ export function SeatCount({ count }: { count: number | null }) {
   );
 }
 
-export function UnmuteRoomBar({ onClick, detail }: { onClick: () => void; detail: string }) {
-  return (
-    <div className="px-5 pt-3">
-      <button
-        type="button"
-        className="press flex h-14 w-full items-center justify-center gap-3 rounded-full bg-fg text-base font-semibold text-bg"
-        onClick={onClick}
-      >
-        <Volume2 className="size-5" aria-hidden />
-        Unmute room
-      </button>
-      <p className="mt-2 text-center text-xs text-muted">{detail}</p>
-    </div>
-  );
-}
-
 export function LevelBars({ level }: { level: number }) {
   const steps = [0.18, 0.38, 0.58, 0.78];
   const heights = ["h-1", "h-2", "h-3", "h-4"];
@@ -192,10 +177,19 @@ export function BootScreen() {
   );
 }
 
-export function JoinConversationButton({ sessionPending = false }: { sessionPending?: boolean }) {
+export function JoinConversationButton({
+  sessionPending = false,
+  onClose,
+}: {
+  sessionPending?: boolean;
+  onClose?: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const arm = useRef(false);
+
+  useEffect(() => setReady(true), []);
 
   useEffect(() => {
     if (!arm.current || sessionPending) return;
@@ -214,32 +208,58 @@ export function JoinConversationButton({ sessionPending = false }: { sessionPend
     };
   }, [sessionPending]);
 
-  return (
-    <div>
-      <button
-        type="button"
-        className="press inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-fg px-5 font-semibold text-bg disabled:opacity-60"
-        disabled={busy}
-        onClick={() => {
-          if (busy) return;
-          setError(null);
-          setBusy(true);
-          if (sessionPending) {
-            arm.current = true;
-            return;
-          }
-          void signIn("grok-x", { callbackURL: "/" })
-            .catch((cause: unknown) => {
-              setError(cause instanceof Error ? cause.message : "Sign-in failed");
-            })
-            .finally(() => setBusy(false));
-        }}
+  function start() {
+    if (busy) return;
+    setError(null);
+    setBusy(true);
+    if (sessionPending) {
+      arm.current = true;
+      return;
+    }
+    void signIn("grok-x", { callbackURL: "/" })
+      .catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : "Sign-in failed");
+      })
+      .finally(() => setBusy(false));
+  }
+
+  if (!ready) return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        onClose?.();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-label="Join the conversation"
+        className="sheet w-full max-w-lg rounded-t-3xl border-x border-t border-line bg-elevated px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+        onPointerDown={(event) => event.stopPropagation()}
       >
-        <XLogo />
-        {busy ? "Opening X…" : "Join the conversation"}
-      </button>
-      <p className="mt-2 text-center text-sm text-muted">Log in with X to request a mic</p>
-      {error ? <p className="mt-2 text-center text-sm text-live">{error}</p> : null}
-    </div>
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Join the conversation</h2>
+          {onClose ? (
+            <button type="button" className="press grid size-11 place-items-center rounded-full" aria-label="Close" onClick={onClose}>
+              <X className="size-5" />
+            </button>
+          ) : null}
+        </div>
+        <p className="mt-2 text-sm text-muted">Log in with X to request a mic. Listening stays open.</p>
+        <button
+          type="button"
+          className="press mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-fg px-5 font-semibold text-bg disabled:opacity-60"
+          disabled={busy}
+          onClick={start}
+        >
+          <XLogo />
+          {busy ? "Opening X…" : "Log in with X"}
+        </button>
+        {error ? <p className="mt-2 text-center text-sm text-live">{error}</p> : null}
+      </div>
+    </div>,
+    document.body,
   );
 }

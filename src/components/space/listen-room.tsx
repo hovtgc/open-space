@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MicOff } from "lucide-react";
-import { AnonymousSeat, Face, JoinConversationButton, LevelBars, LiveMark, OpeningLine, RoomFrame, SourceLink, UnmuteRoomBar } from "@/components/space/chrome";
-import { MAX_LISTENERS, MAX_SPEAKERS, SPACE_STATUS, SPACE_TITLE } from "@/lib/space/constants";
+import { MicOff, Volume2 } from "lucide-react";
+import { AnonymousSeat, Face, JoinConversationButton, LevelBars, LiveMark, OpeningLine, RoomFrame, SourceLink } from "@/components/space/chrome";
+import { ChatComposer, ChatProvider, ChatTranscript } from "@/components/space/room-chat";
+import { MAX_LISTENERS, SPACE_STATUS, SPACE_TITLE } from "@/lib/space/constants";
 import { primeAudio } from "@/lib/space/voice-room";
 import type { LinkState, RoomHealth, VoiceMember } from "@/lib/space/voice-room";
 import { VoiceRoom } from "@/lib/space/voice-room";
@@ -48,6 +49,7 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
   const [levels, setLevels] = useState<Record<string, number>>({});
   const [health, setHealth] = useState<RoomHealth>(IDLE_HEALTH);
   const [error, setError] = useState<string | null>(null);
+  const [joinOpen, setJoinOpen] = useState(false);
   const roomRef = useRef<VoiceRoom | null>(null);
   const peerRef = useRef<string | null>(null);
   const snapRef = useRef("");
@@ -192,24 +194,20 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
 
   return (
     <RoomFrame>
-      <div
-        className="flex min-h-0 flex-1 flex-col"
-        onPointerDown={() => hear()}
-      >
+      <ChatProvider signedIn={false} active={snapshot?.status === "ok" && Boolean(peerId)}>
+      <div className="flex min-h-0 flex-1 flex-col">
         <header className="safe-top flex items-center justify-between px-5">
           <LiveMark />
           <span className="text-sm text-muted">
             {snapshot?.status === "full" ? "Listeners full" : `${spotsOpen} open`}
           </span>
         </header>
-        {needGesture ? (
-          <UnmuteRoomBar onClick={hear} detail="Your browser muted this room" />
-        ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-6">
+        <div className="relative z-0 min-h-0 flex-1 overflow-y-auto">
+        <div className="px-5 pt-4">
           <h1 className="text-2xl font-semibold tracking-tight">{SPACE_TITLE}</h1>
           <p className="mt-1 text-sm text-muted">
             {SPACE_STATUS}
-            {roomMuted ? " · Room muted" : ` · ${MAX_SPEAKERS} speaker spots, admitted by the host`}
+            {roomMuted ? " · Room muted" : " · Host admits the speakers"}
           </p>
           <p className="mt-2">
             <SourceLink />
@@ -227,10 +225,10 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
               <ul
                 className={
                   stage.length === 1
-                    ? "mt-8 grid grid-cols-1 justify-items-center"
+                    ? "mt-6 flex items-center gap-3"
                     : stage.length === 2
-                      ? "mx-auto mt-8 grid w-full max-w-xs grid-cols-2 gap-x-6"
-                      : "mt-8 grid grid-cols-3 gap-x-3 gap-y-6"
+                      ? "mx-auto mt-6 grid w-full max-w-xs grid-cols-2 gap-x-6"
+                      : "mt-6 grid grid-cols-3 gap-x-3 gap-y-6"
                 }
               >
               {stage.map((member) => {
@@ -246,13 +244,13 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
                       ? "weak"
                       : "ok";
                 return (
-                  <li key={member.peerId} className="flex min-w-0 flex-col items-center text-center">
+                  <li key={member.peerId} className={stage.length === 1 ? "flex min-w-0 items-center gap-3" : "flex min-w-0 flex-col items-center text-center"}>
                     <div
-                      className={`level-ring relative rounded-full ${speakingNow ? "speak-ring" : ""}`}
+                      className={`level-ring relative shrink-0 rounded-full ${speakingNow ? "speak-ring" : ""}`}
                       style={{ ["--lvl" as string]: lvl.toFixed(2) }}
                     >
                       <Face name={member.displayName} handle={member.handle} image={member.image} large={stage.length < 4} />
-                      {!audible ? (
+                      {member.forcedMute ? (
                         <span className="absolute -right-0.5 -bottom-0.5 grid size-6 place-items-center rounded-full bg-bg text-fg ring-1 ring-line">
                           <MicOff className="size-3.5" aria-hidden />
                         </span>
@@ -263,11 +261,13 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
                         />
                       ) : null}
                     </div>
-                    <span className="mt-2 block w-full text-center text-sm font-medium leading-tight line-clamp-2">
-                      {member.displayName}
+                    <span className={stage.length === 1 ? "min-w-0 text-left" : "contents"}>
+                      <span className={`block truncate font-medium ${stage.length === 1 ? "text-base" : "mt-2 w-full text-center text-sm leading-tight line-clamp-2"}`}>
+                        {member.displayName}
+                      </span>
+                      <span className={`block truncate text-muted ${stage.length === 1 ? "text-sm" : "w-full text-center text-xs"}`}>@{member.handle}</span>
+                      {member.isHost ? <span className="block text-xs text-muted">Host</span> : null}
                     </span>
-                    <span className="block w-full truncate text-xs text-muted">@{member.handle}</span>
-                    {member.isHost ? <span className="block text-xs text-muted">Host</span> : null}
                   </li>
                 );
               })}
@@ -284,8 +284,33 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
             />
           ) : null}
         </div>
-        <div className="safe-bottom mt-auto mb-16 px-5">
-          <JoinConversationButton sessionPending={sessionPending} />
+        <ChatTranscript />
+        </div>
+        <div className="relative z-10 shrink-0 border-t border-line bg-bg safe-bottom mb-16">
+          <ChatComposer />
+          <div className="talk-guard px-5 pt-3">
+          {needGesture ? (
+            <button
+              type="button"
+              className="flex w-full flex-col items-center gap-3"
+              aria-label="Unmute room"
+              onContextMenu={(event) => event.preventDefault()}
+              onClick={hear}
+            >
+              <span className="text-sm text-muted">Unmute to hear the room</span>
+              <span className="talk-btn is-hot grid place-items-center">
+                <Volume2 className="pointer-events-none size-8" />
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="press h-12 w-full rounded-full bg-fg text-sm font-semibold text-bg"
+              onClick={() => setJoinOpen(true)}
+            >
+              Join the conversation
+            </button>
+          )}
           {roomLevel > 0 ? (
             <div className="mt-4">
               <LevelBars level={roomLevel} />
@@ -303,8 +328,13 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
             value={volume}
             onChange={(event) => setVolume(Number(event.target.value))}
           />
+          </div>
         </div>
+        {!needGesture && joinOpen ? (
+          <JoinConversationButton sessionPending={sessionPending} onClose={() => setJoinOpen(false)} />
+        ) : null}
       </div>
+      </ChatProvider>
     </RoomFrame>
   );
 }

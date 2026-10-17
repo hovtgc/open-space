@@ -6,7 +6,8 @@ import { MAX_LISTENERS, MAX_SPEAKERS, SPACE_STATUS, SPACE_TITLE } from "@/lib/sp
 import type { LinkState, RoomHealth, VoiceMember } from "@/lib/space/voice-room";
 import { VoiceRoom, primeAudio } from "@/lib/space/voice-room";
 import type { AnonymousListener, Member, SpaceOk, SpaceResult } from "@/lib/space/types";
-import { AnonymousSeat, Face, LevelBars, LiveMark, OpeningLine, RoomFrame, SeatCount, SourceLink, UnmuteRoomBar } from "./chrome";
+import { AnonymousSeat, Face, LevelBars, LiveMark, OpeningLine, RoomFrame, SeatCount, SourceLink } from "./chrome";
+import { ChatComposer, ChatProvider, ChatTranscript } from "./room-chat";
 
 type Phase = "joining" | "in" | "full" | "kicked" | "left" | "error";
 
@@ -78,7 +79,7 @@ function Portrait({
   health: "ok" | "weak" | "silent" | "failed";
   large: boolean;
 }) {
-  const showMute = (member.isHost || member.speaker) && !member.micOn;
+  const showMute = member.forcedMute;
   const lvl = speaking ? Math.max(level, 0.28) : level;
   const healthLabel =
     health === "silent" ? "No audio" : health === "weak" ? "Weak connection" : health === "failed" ? "Reconnecting" : "";
@@ -109,6 +110,7 @@ function Seat({
   level,
   health,
   large,
+  row = false,
   onManage,
 }: {
   member: Member;
@@ -116,29 +118,35 @@ function Seat({
   level: number;
   health: "ok" | "weak" | "silent" | "failed";
   large: boolean;
+  row?: boolean;
   onManage: ((member: Member) => void) | null;
 }) {
   const role = roleLabel(member);
-  const body = (
+  const body = row ? (
+    <>
+      <Portrait member={member} speaking={speaking} level={level} health={health} large />
+      <span className="min-w-0 text-left">
+        <span className="block truncate text-base font-medium">{member.displayName}</span>
+        <span className="block truncate text-sm text-muted">@{member.handle}</span>
+        {role ? <span className="block text-xs text-muted">{role}</span> : null}
+      </span>
+    </>
+  ) : (
     <>
       <Portrait member={member} speaking={speaking} level={level} health={health} large={large} />
-      <span className={`mt-2 block w-full text-center font-medium leading-tight line-clamp-2 ${large ? "text-sm" : "text-xs"}`}>
+      <span className={`mt-2 block w-full px-1 text-center font-medium leading-snug ${large ? "text-base" : "line-clamp-2 text-xs"}`}>
         {member.displayName}
       </span>
-      <span className="block w-full truncate text-center text-xs text-muted">@{member.handle}</span>
+      <span className={`block w-full text-center text-muted ${large ? "text-sm" : "truncate text-xs"}`}>@{member.handle}</span>
       {role ? <span className="block text-xs text-muted">{role}</span> : null}
     </>
   );
-  if (!onManage) {
-    return <div className="flex w-full min-w-0 flex-col items-center text-center">{body}</div>;
-  }
+  const className = row
+    ? "flex w-full min-w-0 items-center gap-3 text-left"
+    : "flex w-full min-w-0 flex-col items-center text-center";
+  if (!onManage) return <div className={className}>{body}</div>;
   return (
-    <button
-      type="button"
-      className="press flex w-full min-w-0 flex-col items-center text-center"
-      onClick={() => onManage(member)}
-      aria-label={`Manage @${member.handle}`}
-    >
+    <button type="button" className={`press ${className}`} onClick={() => onManage(member)} aria-label={`Manage @${member.handle}`}>
       {body}
     </button>
   );
@@ -170,6 +178,8 @@ export function LiveRoom() {
   const [volumeReady, setVolumeReady] = useState(false);
   const [deviceId, setDeviceId] = useState("");
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
+  const [talkMode, setTalkMode] = useState<"tap" | "ptt">("tap");
+  const [holding, setHolding] = useState(false);
 
   const roomRef = useRef<VoiceRoom | null>(null);
   const snapRef = useRef("");
@@ -182,6 +192,7 @@ export function LiveRoom() {
   const deviceIdRef = useRef("");
   const micBusyRef = useRef(false);
   const volumeRef = useRef(volume);
+  const holdingRef = useRef(false);
   volumeRef.current = volume;
   deviceIdRef.current = deviceId;
 
@@ -321,6 +332,8 @@ export function LiveRoom() {
     try {
       const stored = Number(localStorage.getItem("open-room-volume"));
       if (Number.isFinite(stored) && stored >= 0 && stored <= 100) setVolume(stored);
+      const talk = localStorage.getItem("open-room-talk");
+      if (talk === "ptt" || talk === "tap") setTalkMode(talk);
     } catch {
       /* storage unavailable */
     }
@@ -434,6 +447,71 @@ export function LiveRoom() {
     await enableMic(deviceId);
   }
 
+  async function beginTalk() {
+    if (!canSpeakRef.current || forcedRef.current) return;
+    holdingRef.current = true;
+    setHolding(true);
+    void roomRef.current?.unlock();
+    if (micRef.current) return;
+    wantMicRef.current = true;
+    if (resumeHeldMic()) {
+      try {
+        apply(await syncSpace({ data: true }));
+      } catch {
+        /* next heartbeat retries */
+      }
+      return;
+    }
+    await enableMic(deviceIdRef.current);
+    if (!holdingRef.current && micRef.current) {
+      wantMicRef.current = false;
+      silenceMic();
+      try {
+        apply(await syncSpace({ data: false }));
+      } catch {
+        /* next heartbeat retries */
+      }
+    }
+  }
+
+  function endTalk() {
+    holdingRef.current = false;
+    setHolding(false);
+    if (!micRef.current) return;
+    wantMicRef.current = false;
+    silenceMic();
+    void syncSpace({ data: false })
+      .then((result) => apply(result))
+      .catch(() => {});
+  }
+
+  function chooseTalk(next: "tap" | "ptt") {
+    if (holdingRef.current) endTalk();
+    else if (next === "ptt" && micRef.current) {
+      wantMicRef.current = false;
+      silenceMic();
+      void syncSpace({ data: false })
+        .then((result) => apply(result))
+        .catch(() => {});
+    }
+    setTalkMode(next);
+    try {
+      localStorage.setItem("open-room-talk", next);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function releaseRoom() {
+    const ctx = primeAudio();
+    void roomRef.current?.unlock();
+    if (ctx) {
+      const sync = () => setNeedGesture(ctx.state === "suspended");
+      void ctx.resume().then(sync).catch(sync);
+    }
+    if (self?.isHost && roomMuted) void toggleRoom();
+  }
+
   async function leave() {
     roomRef.current?.close({ notify: true });
     haltMic();
@@ -523,7 +601,8 @@ export function LiveRoom() {
               ? "Weak connection"
               : null;
   let status = "";
-  if (micError) status = micError;
+  if (needGesture) status = "Unmute to hear the room";
+  else if (micError) status = micError;
   else if (roomMuted) status = "Room muted";
   else if (self?.forcedMute) status = "Muted by host";
   else if (!canSpeakNow) status = self?.speakRequested ? "Request sent" : "Request a mic";
@@ -533,10 +612,14 @@ export function LiveRoom() {
       ? pendingLinks > 0
         ? "Connecting audio…"
         : `Admitted · ${hoursLeft(self.admittedUntil)}`
-      : "Tap the mic";
+      : talkMode === "ptt"
+        ? "Hold to talk"
+        : "Tap the mic";
   } else if (spotsFull) status = "All 8 spots are taken";
   else if (micOn && pendingLinks > 0) status = "Connecting audio…";
-  else if (!micOn) status = "Tap the mic";
+  else if (micOn && talkMode === "ptt") status = "Release to stop";
+  else if (!micOn) status = talkMode === "ptt" ? "Hold to talk" : "Tap the mic";
+  const showUnmute = needGesture || Boolean(self?.isHost && roomMuted);
   const localLevel = peerId ? (levels[peerId] ?? 0) : 0;
   const roomLevel = members.reduce((max, member) => {
     if (member.peerId === peerId) return max;
@@ -560,24 +643,6 @@ export function LiveRoom() {
         <LiveMark />
         <SeatCount count={phase === "in" ? members.length + anonymous.length : null} />
       </header>
-      {needGesture || (self?.isHost && roomMuted) ? (
-        <UnmuteRoomBar
-          onClick={() => {
-            const ctx = primeAudio();
-            void roomRef.current?.unlock();
-            if (ctx) {
-              const sync = () => setNeedGesture(ctx.state === "suspended");
-              void ctx.resume().then(sync).catch(sync);
-            }
-            if (self?.isHost && roomMuted) void toggleRoom();
-          }}
-          detail={
-            self?.isHost && roomMuted && !needGesture
-              ? "Listeners can't hear anyone"
-              : "Your browser muted this room"
-          }
-        />
-      ) : null}
 
       {phase === "joining" ? (
         <div className="px-5 pt-8">
@@ -623,14 +688,15 @@ export function LiveRoom() {
       ) : null}
 
       {phase === "in" ? (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-6">
+        <ChatProvider signedIn active host={Boolean(self?.isHost)}>
+          <div className="relative z-0 min-h-0 flex-1 overflow-y-auto">
+            <div className="px-5 pt-3">
             <h1 className="text-2xl font-semibold tracking-tight">{SPACE_TITLE}</h1>
             <p className="mt-1 text-sm text-muted">
               {SPACE_STATUS}
               {roomMuted ? " · Room muted" : ` · ${spotsUsed}/${MAX_SPEAKERS} speakers`}
             </p>
-            <p className="mt-2">
+            <p className="mt-1">
               <SourceLink />
             </p>
             {self && !self.isHost && !self.admittedUntil ? (
@@ -641,17 +707,18 @@ export function LiveRoom() {
               <ul
                 className={
                   stageShown.length === 1
-                    ? "mt-8 grid grid-cols-1 justify-items-center"
+                    ? "mt-4 grid w-full grid-cols-1"
                     : stageShown.length === 2
-                      ? "mx-auto mt-8 grid w-full max-w-xs grid-cols-2 gap-x-6"
-                      : "mt-8 grid grid-cols-3 gap-x-3 gap-y-6"
+                      ? "mx-auto grid w-full max-w-xs grid-cols-2 gap-x-6"
+                      : "grid grid-cols-3 gap-x-3 gap-y-6"
                 }
               >
                 {stageShown.map((member) => (
-                  <li key={member.userId} className="min-w-0">
+                  <li key={member.userId} className="min-w-0 w-full">
                     <Seat
                       member={member}
                       large={stageShown.length < 4}
+                      row={stageShown.length === 1}
                       speaking={Boolean(speaking[member.peerId]) && member.micOn && !member.forcedMute && !roomMuted}
                       level={levels[member.peerId] ?? 0}
                       health={portraitHealth(member.peerId, peerId, health)}
@@ -661,11 +728,11 @@ export function LiveRoom() {
                 ))}
               </ul>
             ) : (
-              <p className="mt-8 text-sm text-muted">No one is speaking.</p>
+              <p className="text-sm text-muted">No one is speaking.</p>
             )}
 
             {self?.isHost && requests.length > 0 ? (
-              <section className="mt-8">
+              <section className="mt-6">
                 <h2 className="text-sm font-medium text-muted">Requests · {requests.length}</h2>
                 {spotsUsed >= MAX_SPEAKERS ? (
                   <p className="mt-2 text-sm text-muted">All 8 speaker spots are filled.</p>
@@ -699,10 +766,12 @@ export function LiveRoom() {
                 selfId={self?.userId ?? null}
                 onManage={onManage}
               />
+            </div>
+            <ChatTranscript />
           </div>
 
           {channelOpen ? (
-            <div className="sheet mx-5 mb-3 rounded-3xl border border-line bg-elevated p-4">
+            <div className="sheet mx-5 mb-3 max-h-72 overflow-y-auto rounded-3xl border border-line bg-elevated p-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold">Channel</h2>
                 <button
@@ -768,7 +837,7 @@ export function LiveRoom() {
           ) : null}
 
           {managing ? (
-            <div className="sheet mx-5 mb-3 rounded-3xl border border-line bg-elevated p-4" role="dialog" aria-label={`Manage @${managing.handle}`}>
+            <div className="sheet mx-5 mb-3 max-h-72 overflow-y-auto rounded-3xl border border-line bg-elevated p-4" role="dialog" aria-label={`Manage @${managing.handle}`}>
               <p className="font-semibold">{managing.displayName}</p>
               <p className="text-sm text-muted">
                 @{managing.handle}
@@ -819,74 +888,120 @@ export function LiveRoom() {
             </div>
           ) : null}
 
-          <div className="safe-bottom mt-auto mb-16 px-5">
-            {self?.isHost && !roomMuted ? (
-              <button
-                type="button"
-                className="press mb-4 h-11 w-full rounded-full border border-line text-sm font-semibold"
-                onClick={() => void toggleRoom()}
-              >
-                Mute room
-              </button>
-            ) : null}
-            {micOn || meterLevel > 0 ? <LevelBars level={meterLevel} /> : null}
-            <p
-              className={`mt-2 mb-3 h-5 truncate text-center text-sm text-muted ${status.startsWith("Connecting") || status.startsWith("Reconnecting") ? "seat-wait-text" : ""}`}
-              aria-live="polite"
-            >
-              {status}
-            </p>
-            <div className="flex items-center justify-center gap-6">
-              <button
-                type="button"
-                className="press grid size-12 place-items-center rounded-full bg-elevated"
-                aria-label="Leave room"
-                onClick={() => void leave()}
-              >
-                <PhoneOff className="size-5 text-live" />
-              </button>
-              {canSpeakNow ? (
+          <div className="relative z-10 shrink-0 border-t border-line bg-bg safe-bottom mb-16">
+            <ChatComposer />
+            <div className="talk-guard flex flex-col items-center gap-4 px-5 pt-4 pb-2">
+              <div className="flex items-center justify-center gap-3">
+                {showUnmute ? (
+                  <button type="button" className="truncate text-sm text-muted" onClick={() => releaseRoom()}>
+                    {status}
+                  </button>
+                ) : (
+                  <p
+                    className={`truncate text-center text-sm text-muted ${status.startsWith("Connecting") || status.startsWith("Reconnecting") ? "seat-wait-text" : ""}`}
+                    aria-live="polite"
+                  >
+                    {status}
+                  </p>
+                )}
+                {self?.isHost && !roomMuted ? (
+                  <button
+                    type="button"
+                    className="press h-8 shrink-0 rounded-full border border-line px-3 text-xs font-medium"
+                    onClick={() => void toggleRoom()}
+                  >
+                    Mute room
+                  </button>
+                ) : null}
+              </div>
+              {micOn || meterLevel > 0 ? <LevelBars level={meterLevel} /> : null}
+              <div className="flex items-center justify-center gap-8">
                 <button
                   type="button"
-                  className={
-                    micOn
-                      ? "mic-live press grid size-16 place-items-center rounded-full bg-fg text-bg"
-                      : "press grid size-16 place-items-center rounded-full border border-line bg-elevated text-fg disabled:opacity-50"
-                  }
-                  style={micOn ? { ["--lvl" as string]: localLevel.toFixed(2) } : undefined}
-                  aria-label={micOn ? "Turn microphone off" : "Turn microphone on"}
-                  aria-pressed={micOn}
-                  disabled={Boolean(self?.forcedMute) || micBusy}
-                  onClick={() => void toggleMic()}
+                  className="press grid size-12 place-items-center rounded-full bg-elevated"
+                  aria-label="Leave room"
+                  onClick={() => void leave()}
                 >
-                  {micOn ? <Mic className="size-6" /> : <MicOff className="size-6" />}
+                  <PhoneOff className="size-5 text-live" />
                 </button>
-              ) : (
+                {(() => {
+                  const hot = micOn;
+                  const ptt = talkMode === "ptt" && canSpeakNow && !showUnmute;
+                  return (
+                    <button
+                      type="button"
+                      className={`talk-btn grid touch-none place-items-center ${hot ? "is-hot" : ""} ${ptt ? "is-ptt" : ""} ${ptt && (holding || micOn) ? "is-down" : ""}`}
+                      style={micOn ? { ["--lvl" as string]: localLevel.toFixed(2) } : undefined}
+                      aria-label={
+                        showUnmute ? "Unmute room" : micOn ? "Turn microphone off" : canSpeakNow ? "Turn microphone on" : "Request to speak"
+                      }
+                      aria-pressed={micOn}
+                      onContextMenu={(event) => event.preventDefault()}
+                      disabled={(!showUnmute && Boolean(self?.forcedMute)) || micBusy || (!showUnmute && !canSpeakNow && Boolean(self?.speakRequested))}
+                      onPointerDown={(event) => {
+                        if (showUnmute || talkMode !== "ptt" || !canSpeakNow) return;
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        void beginTalk();
+                      }}
+                      onPointerUp={() => {
+                        if (talkMode === "ptt") endTalk();
+                      }}
+                      onPointerCancel={() => {
+                        if (talkMode === "ptt") endTalk();
+                      }}
+                      onClick={() => {
+                        if (showUnmute) {
+                          releaseRoom();
+                          return;
+                        }
+                        if (!canSpeakNow) {
+                          void askToSpeak();
+                          return;
+                        }
+                        if (talkMode === "tap") void toggleMic();
+                      }}
+                    >
+                      {canSpeakNow && micOn ? <Mic className="pointer-events-none size-8" /> : <MicOff className="pointer-events-none size-8" />}
+                    </button>
+                  );
+                })()}
                 <button
                   type="button"
-                  className="press h-16 rounded-full bg-fg px-5 text-sm font-semibold text-bg disabled:opacity-60"
-                  disabled={Boolean(self?.speakRequested)}
-                  onClick={() => void askToSpeak()}
+                  className="press grid size-12 place-items-center rounded-full bg-elevated"
+                  aria-label="Channel controls"
+                  aria-pressed={channelOpen}
+                  onClick={() => {
+                    void roomRef.current?.unlock();
+                    setManaging(null);
+                    setChannelOpen((open) => !open);
+                  }}
                 >
-                  {self?.speakRequested ? "Requested" : "Request to speak"}
+                  <SlidersHorizontal className="size-5" />
                 </button>
-              )}
-              <button
-                type="button"
-                className="press grid size-12 place-items-center rounded-full bg-elevated"
-                aria-label="Channel controls"
-                aria-pressed={channelOpen}
-                onClick={() => {
-                  void roomRef.current?.unlock();
-                  setManaging(null);
-                  setChannelOpen((open) => !open);
-                }}
-              >
-                <SlidersHorizontal className="size-5" />
-              </button>
+              </div>
+              {canSpeakNow && !needGesture ? (
+                <div className="grid w-full max-w-xs grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className={`press h-11 rounded-full text-sm font-semibold ${talkMode === "tap" ? "bg-fg text-bg" : "border border-line text-muted"}`}
+                    aria-pressed={talkMode === "tap"}
+                    onClick={() => chooseTalk("tap")}
+                  >
+                    Tap
+                  </button>
+                  <button
+                    type="button"
+                    className={`press h-11 rounded-full text-sm font-semibold ${talkMode === "ptt" ? "bg-fg text-bg" : "border border-line text-muted"}`}
+                    aria-pressed={talkMode === "ptt"}
+                    onClick={() => chooseTalk("ptt")}
+                  >
+                    Push to talk
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
-        </>
+        </ChatProvider>
       ) : null}
     </RoomFrame>
   );
@@ -920,12 +1035,7 @@ const ListeningSection = memo(function ListeningSection({
   const listeners = members.filter((member) => !member.isHost && !member.speaker);
   const stageCount = members.length - listeners.length;
   const shown = stageCount > 0 ? listeners : members.length === 1 ? [] : listeners;
-  if (shown.length === 0 && anonymous.length === 0) {
-    if (members.length === 1) {
-      return <p className="mt-8 text-center text-sm text-muted">No one else is here.</p>;
-    }
-    return null;
-  }
+  if (shown.length === 0 && anonymous.length === 0) return null;
   const manage = host
     ? (member: Member) => {
         if (member.userId === selfId) return;

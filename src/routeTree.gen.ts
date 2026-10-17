@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiAvatarRouteImport } from './routes/api/avatar'
+import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiListenRouteImport } from './routes/api/listen'
 import { Route as ApiRoomCountRouteImport } from './routes/api/room-count'
 import { Route as ApiRtcRouteImport } from './routes/api/rtc'
@@ -30,6 +31,11 @@ const LoginRoute = LoginRouteImport.update({
 const ApiAvatarRoute = ApiAvatarRouteImport.update({
   id: '/api/avatar',
   path: '/api/avatar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatRoute = ApiChatRouteImport.update({
+  id: '/api/chat',
+  path: '/api/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiListenRoute = ApiListenRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/avatar': typeof ApiAvatarRoute
+  '/api/chat': typeof ApiChatRoute
   '/api/listen': typeof ApiListenRoute
   '/api/room-count': typeof ApiRoomCountRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/avatar': typeof ApiAvatarRoute
+  '/api/chat': typeof ApiChatRoute
   '/api/listen': typeof ApiListenRoute
   '/api/room-count': typeof ApiRoomCountRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/api/avatar': typeof ApiAvatarRoute
+  '/api/chat': typeof ApiChatRoute
   '/api/listen': typeof ApiListenRoute
   '/api/room-count': typeof ApiRoomCountRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/avatar'
+    | '/api/chat'
     | '/api/listen'
     | '/api/room-count'
     | '/api/rtc'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/avatar'
+    | '/api/chat'
     | '/api/listen'
     | '/api/room-count'
     | '/api/rtc'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/api/avatar'
+    | '/api/chat'
     | '/api/listen'
     | '/api/room-count'
     | '/api/rtc'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   ApiAvatarRoute: typeof ApiAvatarRoute
+  ApiChatRoute: typeof ApiChatRoute
   ApiListenRoute: typeof ApiListenRoute
   ApiRoomCountRoute: typeof ApiRoomCountRoute
   ApiRtcRoute: typeof ApiRtcRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/api/avatar'
       fullPath: '/api/avatar'
       preLoaderRoute: typeof ApiAvatarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chat': {
+      id: '/api/chat'
+      path: '/api/chat'
+      fullPath: '/api/chat'
+      preLoaderRoute: typeof ApiChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/listen': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   ApiAvatarRoute: ApiAvatarRoute,
+  ApiChatRoute: ApiChatRoute,
   ApiListenRoute: ApiListenRoute,
   ApiRoomCountRoute: ApiRoomCountRoute,
   ApiRtcRoute: ApiRtcRoute,

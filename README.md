@@ -15,7 +15,8 @@ Source: [github.com/hovtgc/open-space](https://github.com/hovtgc/open-space)
 - 50 listeners. New people wait until someone leaves.
 - 8 speaker seats. The host admits someone for 24 hours, then they request again.
 - Host is [@hovinthenorth](https://x.com/hovinthenorth).
-- Audio goes browser to browser. Nothing is recorded.
+- Chat stays in the room. A shared link drops when that person leaves.
+- The host can keep a short Suno playlist. Tracks open on Suno.
 
 ## Run
 
