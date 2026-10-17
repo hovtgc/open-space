@@ -584,7 +584,6 @@ export function LiveRoom() {
     <RoomFrame>
       <header className="safe-top flex items-center justify-between px-5">
         <LiveMark />
-        <SourceLink />
         <SeatCount count={phase === "in" ? members.length + anonymous.length : null} />
       </header>
       {needGesture || (self?.isHost && roomMuted) ? (
@@ -656,6 +655,9 @@ export function LiveRoom() {
             <p className="mt-1 text-sm text-muted">
               {SPACE_STATUS}
               {roomMuted ? " · Room muted" : ` · ${spotsUsed}/${MAX_SPEAKERS} speakers`}
+            </p>
+            <p className="mt-2">
+              <SourceLink />
             </p>
             {self && !self.isHost && !self.admittedUntil ? (
               <p className="mt-1 text-sm text-muted">The host admits speakers for 24 hours.</p>

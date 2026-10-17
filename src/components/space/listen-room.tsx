@@ -204,7 +204,6 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
       >
         <header className="safe-top flex items-center justify-between px-5">
           <LiveMark />
-          <SourceLink />
           <span className="text-sm text-muted">
             {snapshot?.status === "full" ? "Listeners full" : `${spotsOpen} open`}
           </span>
@@ -217,6 +216,9 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
           <p className="mt-1 text-sm text-muted">
             {SPACE_STATUS}
             {roomMuted ? " · Room muted" : ` · ${MAX_SPEAKERS} speaker spots, admitted by the host`}
+          </p>
+          <p className="mt-2">
+            <SourceLink />
           </p>
           {healthNote ? <p className="mt-1 text-sm text-live">{healthNote}</p> : null}
           {error ? <p className="mt-6 text-sm text-live">{error}</p> : null}
