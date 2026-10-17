@@ -6,7 +6,7 @@ import { MAX_LISTENERS, MAX_SPEAKERS, SPACE_STATUS, SPACE_TITLE } from "@/lib/sp
 import type { LinkState, RoomHealth, VoiceMember } from "@/lib/space/voice-room";
 import { VoiceRoom, primeAudio } from "@/lib/space/voice-room";
 import type { AnonymousListener, Member, SpaceOk, SpaceResult } from "@/lib/space/types";
-import { AnonymousSeat, LevelBars, LiveMark, OpeningLine, RoomFrame, SeatCount, SourceLink, UnmuteRoomBar } from "./chrome";
+import { AnonymousSeat, Face, LevelBars, LiveMark, OpeningLine, RoomFrame, SeatCount, SourceLink, UnmuteRoomBar } from "./chrome";
 
 type Phase = "joining" | "in" | "full" | "kicked" | "left" | "error";
 
@@ -14,12 +14,6 @@ function unauthorized(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const record = error as { message?: string; status?: number };
   return record.message === "Unauthorized" || record.status === 401;
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  const letters = parts.map((part) => part[0] ?? "").join("");
-  return letters.toUpperCase() || "?";
 }
 
 function roleLabel(member: Member): string | null {
@@ -84,7 +78,6 @@ function Portrait({
   health: "ok" | "weak" | "silent" | "failed";
   large: boolean;
 }) {
-  const [broken, setBroken] = useState(false);
   const showMute = (member.isHost || member.speaker) && !member.micOn;
   const lvl = speaking ? Math.max(level, 0.28) : level;
   const healthLabel =
@@ -95,26 +88,7 @@ function Portrait({
       style={{ ["--lvl" as string]: lvl.toFixed(2) }}
       title={healthLabel || undefined}
     >
-      <div
-        className={
-          large
-            ? "size-24 overflow-hidden rounded-full bg-elevated"
-            : "size-14 overflow-hidden rounded-full bg-elevated"
-        }
-      >
-        {member.image && !broken ? (
-          <img
-            src={member.image}
-            alt=""
-            className="size-full object-cover"
-            onError={() => setBroken(true)}
-          />
-        ) : (
-          <span className="grid size-full place-items-center font-medium text-muted">
-            {initials(member.displayName)}
-          </span>
-        )}
-      </div>
+      <Face name={member.displayName} handle={member.handle} image={member.image} large={large} />
       {showMute ? (
         <span className="absolute -right-0.5 -bottom-0.5 grid size-6 place-items-center rounded-full bg-bg text-fg ring-1 ring-line">
           <MicOff className="size-3.5" aria-hidden />
@@ -148,10 +122,10 @@ function Seat({
   const body = (
     <>
       <Portrait member={member} speaking={speaking} level={level} health={health} large={large} />
-      <span className={`mt-2 block truncate font-medium ${large ? "text-sm" : "text-xs"}`}>
+      <span className={`mt-2 block w-full text-center font-medium leading-tight line-clamp-2 ${large ? "text-sm" : "text-xs"}`}>
         {member.displayName}
       </span>
-      <span className="block truncate text-xs text-muted">@{member.handle}</span>
+      <span className="block w-full truncate text-center text-xs text-muted">@{member.handle}</span>
       {role ? <span className="block text-xs text-muted">{role}</span> : null}
     </>
   );
@@ -668,7 +642,9 @@ export function LiveRoom() {
                 className={
                   stageShown.length === 1
                     ? "mt-8 grid grid-cols-1 justify-items-center"
-                    : "mt-8 grid grid-cols-3 gap-x-3 gap-y-6"
+                    : stageShown.length === 2
+                      ? "mx-auto mt-8 grid w-full max-w-xs grid-cols-2 gap-x-6"
+                      : "mt-8 grid grid-cols-3 gap-x-3 gap-y-6"
                 }
               >
                 {stageShown.map((member) => (

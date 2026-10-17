@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ApiAvatarRouteImport } from './routes/api/avatar'
 import { Route as ApiListenRouteImport } from './routes/api/listen'
 import { Route as ApiRoomCountRouteImport } from './routes/api/room-count'
 import { Route as ApiRtcRouteImport } from './routes/api/rtc'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAvatarRoute = ApiAvatarRouteImport.update({
+  id: '/api/avatar',
+  path: '/api/avatar',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiListenRoute = ApiListenRouteImport.update({
@@ -50,6 +56,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/api/avatar': typeof ApiAvatarRoute
   '/api/listen': typeof ApiListenRoute
   '/api/room-count': typeof ApiRoomCountRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/api/avatar': typeof ApiAvatarRoute
   '/api/listen': typeof ApiListenRoute
   '/api/room-count': typeof ApiRoomCountRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/api/avatar': typeof ApiAvatarRoute
   '/api/listen': typeof ApiListenRoute
   '/api/room-count': typeof ApiRoomCountRoute
   '/api/rtc': typeof ApiRtcRoute
@@ -77,6 +86,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/api/avatar'
     | '/api/listen'
     | '/api/room-count'
     | '/api/rtc'
@@ -85,6 +95,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/api/avatar'
     | '/api/listen'
     | '/api/room-count'
     | '/api/rtc'
@@ -93,6 +104,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/login'
+    | '/api/avatar'
     | '/api/listen'
     | '/api/room-count'
     | '/api/rtc'
@@ -102,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  ApiAvatarRoute: typeof ApiAvatarRoute
   ApiListenRoute: typeof ApiListenRoute
   ApiRoomCountRoute: typeof ApiRoomCountRoute
   ApiRtcRoute: typeof ApiRtcRoute
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/avatar': {
+      id: '/api/avatar'
+      path: '/api/avatar'
+      fullPath: '/api/avatar'
+      preLoaderRoute: typeof ApiAvatarRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/listen': {
@@ -158,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  ApiAvatarRoute: ApiAvatarRoute,
   ApiListenRoute: ApiListenRoute,
   ApiRoomCountRoute: ApiRoomCountRoute,
   ApiRtcRoute: ApiRtcRoute,

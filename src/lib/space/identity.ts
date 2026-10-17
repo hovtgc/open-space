@@ -26,8 +26,30 @@ export function safeImage(url: string | null): string | null {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") return null;
-    return parsed.toString();
+    return sharperImage(parsed.toString());
   } catch {
     return null;
   }
+}
+
+const HANDLE = /^[A-Za-z0-9_]{2,20}$/;
+
+/** X serves a tiny `_normal` crop. Ask for the larger one when the URL allows it. */
+export function sharperImage(url: string): string {
+  return url.replace(/_(normal|bigger|mini|reasonably_small)(?=\.[a-z]+(?:$|\?))/, "_400x400");
+}
+
+/** Login photo when we have one, otherwise the public X avatar for that handle. */
+export function portraitSrc(image: string | null, handle: string): string | null {
+  if (image) {
+    try {
+      const parsed = new URL(image);
+      if (parsed.protocol === "https:") return sharperImage(parsed.toString());
+    } catch {
+      /* not a url */
+    }
+  }
+  const name = handle.trim().replace(/^@/, "");
+  if (!HANDLE.test(name)) return null;
+  return `/api/avatar?h=${encodeURIComponent(name.toLowerCase())}`;
 }

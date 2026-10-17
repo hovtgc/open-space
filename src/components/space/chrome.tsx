@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { User, Users, Volume2 } from "lucide-react";
 import { signIn } from "@/lib/auth/client";
 import { SPACE_STATUS, SPACE_TITLE, SOURCE_URL } from "@/lib/space/constants";
+import { portraitSrc } from "@/lib/space/identity";
 
 export function RoomFrame({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -46,6 +47,53 @@ export function SourceLink() {
     >
       Open source
     </a>
+  );
+}
+
+function letters(name: string): string {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  const out = parts.map((part) => part[0] ?? "").join("");
+  return out.toUpperCase() || "?";
+}
+
+/** Login photo, then the public X avatar, then initials. */
+export function Face({
+  name,
+  handle,
+  image,
+  large,
+}: {
+  name: string;
+  handle: string;
+  image: string | null;
+  large: boolean;
+}) {
+  const primary = portraitSrc(image, handle);
+  const backup = image ? portraitSrc(null, handle) : null;
+  const [src, setSrc] = useState<string | null>(primary);
+  useEffect(() => {
+    setSrc(primary);
+  }, [primary]);
+  return (
+    <div
+      className={
+        large
+          ? "size-24 overflow-hidden rounded-full bg-elevated"
+          : "size-14 overflow-hidden rounded-full bg-elevated"
+      }
+    >
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          referrerPolicy="no-referrer"
+          className="size-full object-cover"
+          onError={() => setSrc((current) => (backup && current !== backup ? backup : null))}
+        />
+      ) : (
+        <span className="grid size-full place-items-center font-medium text-muted">{letters(name)}</span>
+      )}
+    </div>
   );
 }
 

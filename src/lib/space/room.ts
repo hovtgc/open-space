@@ -205,6 +205,7 @@ export const syncSpace = createServerFn({ method: "POST" })
     const updated = await sql.query<{ user_id: string }>(
       `update space_members as s set
          last_seen = now(),
+         image = coalesce((select nullif("image", '') from "user" u where u.id = s.user_id), s.image),
          mic_on = case
            when s.forced_mute then false
            when not $2 then false

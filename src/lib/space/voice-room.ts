@@ -30,9 +30,9 @@ export type VoiceHooks = {
 };
 
 type RemoteAudio = {
-  source: MediaStreamAudioSourceNode;
-  analyser: AnalyserNode;
-  gain: GainNode;
+  el: HTMLAudioElement;
+  source: MediaStreamAudioSourceNode | null;
+  analyser: AnalyserNode | null;
 };
 
 type PeerSlot = {
@@ -45,6 +45,7 @@ type PeerSlot = {
   connectionState: RTCPeerConnectionState;
   trackMuted: boolean;
   trackEnded: boolean;
+  since: number;
 };
 
 type PollBody = {
@@ -187,18 +188,26 @@ export class VoiceRoom {
 
   async unlock(): Promise<void> {
     this.ensureContext();
-    if (!this.ctx) return;
-    try {
-      await this.ctx.resume();
-    } catch {
-      /* autoplay still blocked */
+    if (this.ctx) {
+      try {
+        await this.ctx.resume();
+      } catch {
+        /* autoplay still blocked */
+      }
+      this.onAudio(this.ctx.state);
     }
-    this.onAudio(this.ctx.state);
+    for (const node of this.remotes.values()) {
+      if (!node.el.muted) void node.el.play().catch(() => {});
+    }
   }
 
   setVolume(value: number): void {
     this.volume = Math.min(1, Math.max(0, value));
     if (this.master) this.master.gain.value = this.volume;
+    for (const node of this.remotes.values()) {
+      node.el.volume = this.volume;
+      if (!node.el.muted) void node.el.play().catch(() => {});
+    }
   }
 
   setMembers(members: VoiceMember[]): void {
@@ -269,10 +278,13 @@ export class VoiceRoom {
       const transceiver = slot.transceiver;
       if (!transceiver) continue;
       const direction = sending ? "sendrecv" : "recvonly";
-      if (transceiver.direction !== direction) transceiver.direction = direction;
-      if (this.pushed.get(id) === track) continue;
+      const directionChanged = transceiver.direction !== direction;
+      if (directionChanged) transceiver.direction = direction;
+      if (!directionChanged && this.pushed.get(id) === track) continue;
       this.pushed.set(id, track);
-      void transceiver.sender.replaceTrack(track);
+      void transceiver.sender.replaceTrack(track).then(() => {
+        if (!this.closed && slot.pc.signalingState === "stable") void this.negotiate(id);
+      });
     }
   }
 
@@ -355,6 +367,40 @@ export class VoiceRoom {
       if (this.closed) return;
     }
     this.reconcile();
+    this.healStuck();
+  }
+
+  private healStuck(): void {
+    const now = Date.now();
+    for (const [id, slot] of this.peers) {
+      const state = slot.pc.connectionState;
+      if (state === "connected" || state === "closed") continue;
+      if (now - slot.since < 5000) continue;
+      slot.since = now;
+      try {
+        slot.pc.restartIce();
+      } catch {
+        /* already closed */
+      }
+      void this.negotiate(id);
+    }
+  }
+
+  private async negotiate(peerId: string): Promise<void> {
+    const slot = this.peers.get(peerId);
+    if (!slot || this.closed || slot.makingOffer || slot.pc.signalingState !== "stable") return;
+    slot.makingOffer = true;
+    try {
+      const offer = await slot.pc.createOffer();
+      if (this.closed || slot.pc.signalingState !== "stable") return;
+      await slot.pc.setLocalDescription(offer);
+      await this.sendSignal(peerId, "offer", slot.pc.localDescription?.toJSON());
+    } catch {
+      /* the watchdog offers again */
+    } finally {
+      const current = this.peers.get(peerId);
+      if (current) current.makingOffer = false;
+    }
   }
 
   private computeDesired(): Set<string> {
@@ -407,8 +453,11 @@ export class VoiceRoom {
     slot?.pc.close();
     this.peers.delete(peerId);
     const remote = this.remotes.get(peerId);
-    remote?.source.disconnect();
-    remote?.gain.disconnect();
+    remote?.source?.disconnect();
+    if (remote) {
+      remote.el.pause();
+      remote.el.srcObject = null;
+    }
     this.remotes.delete(peerId);
     this.pushed.delete(peerId);
     this.iceRestartAt.delete(peerId);
@@ -433,6 +482,7 @@ export class VoiceRoom {
       connectionState: pc.connectionState,
       trackMuted: false,
       trackEnded: false,
+      since: Date.now(),
     };
     this.peers.set(peerId, slot);
 
@@ -463,17 +513,8 @@ export class VoiceRoom {
       const stream = e.streams[0] ?? new MediaStream([e.track]);
       this.attachRemote(peerId, stream);
     };
-    pc.onnegotiationneeded = async () => {
-      try {
-        slot.makingOffer = true;
-        await pc.setLocalDescription();
-        if (this.closed) return;
-        await this.sendSignal(peerId, "offer", pc.localDescription?.toJSON());
-      } catch {
-        /* retried on the next negotiation */
-      } finally {
-        slot.makingOffer = false;
-      }
+    pc.onnegotiationneeded = () => {
+      void this.negotiate(peerId);
     };
 
     if (initiator) {
@@ -481,7 +522,15 @@ export class VoiceRoom {
       slot.transceiver = pc.addTransceiver("audio", {
         direction: sending ? "sendrecv" : "recvonly",
       });
-      if (sending && this.localTrack) void slot.transceiver.sender.replaceTrack(this.localTrack);
+      if (sending && this.localTrack) {
+        this.pushed.set(peerId, this.localTrack);
+        void slot.transceiver.sender.replaceTrack(this.localTrack);
+      }
+      queueMicrotask(() => {
+        const current = this.peers.get(peerId);
+        if (!current || current.makingOffer || current.pc.localDescription) return;
+        void this.negotiate(peerId);
+      });
     }
     this.emitLinks();
   }
@@ -509,6 +558,16 @@ export class VoiceRoom {
           kind === "offer" && (slot.makingOffer || slot.pc.signalingState !== "stable");
         slot.ignoreOffer = !polite && collision;
         if (slot.ignoreOffer) return;
+        if (collision) {
+          try {
+            await slot.pc.setLocalDescription({ type: "rollback" });
+          } catch {
+            this.drop(from);
+            this.connectTo(from, false);
+            slot = this.peers.get(from);
+            if (!slot) return;
+          }
+        }
         await slot.pc.setRemoteDescription(description);
         if (this.closed) return;
         await this.flushPending(slot);
@@ -518,10 +577,12 @@ export class VoiceRoom {
         if (slot.transceiver) {
           if (this.sending() && this.localTrack) {
             if (slot.transceiver.direction !== "sendrecv") slot.transceiver.direction = "sendrecv";
-            void slot.transceiver.sender.replaceTrack(this.localTrack);
+            await slot.transceiver.sender.replaceTrack(this.localTrack);
+            this.pushed.set(from, this.localTrack);
           } else if (slot.transceiver.direction !== "recvonly") {
             slot.transceiver.direction = "recvonly";
-            void slot.transceiver.sender.replaceTrack(null);
+            await slot.transceiver.sender.replaceTrack(null);
+            this.pushed.set(from, null);
           }
         }
         if (kind === "offer") {
@@ -580,19 +641,30 @@ export class VoiceRoom {
   }
 
   private attachRemote(peerId: string, stream: MediaStream): void {
-    if (!this.ctx || !this.master) return;
+    this.ensureContext();
     const prev = this.remotes.get(peerId);
-    prev?.source.disconnect();
-    prev?.gain.disconnect();
-    const source = this.ctx.createMediaStreamSource(stream);
-    const analyser = this.ctx.createAnalyser();
-    analyser.fftSize = 256;
-    const gain = this.ctx.createGain();
-    gain.gain.value = 0;
-    source.connect(analyser);
-    analyser.connect(gain);
-    gain.connect(this.master);
-    this.remotes.set(peerId, { source, analyser, gain });
+    prev?.source?.disconnect();
+    if (prev) {
+      prev.el.pause();
+      prev.el.srcObject = null;
+    }
+    const el = new Audio();
+    el.autoplay = true;
+    el.setAttribute("playsinline", "");
+    el.srcObject = stream;
+    el.volume = this.volume;
+    const on = this.audible(peerId);
+    el.muted = !on;
+    void el.play().catch(() => {});
+    let source: MediaStreamAudioSourceNode | null = null;
+    let analyser: AnalyserNode | null = null;
+    if (this.ctx) {
+      analyser = this.ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source = this.ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+    }
+    this.remotes.set(peerId, { el, source, analyser });
     const track = stream.getAudioTracks()[0];
     const slot = this.peers.get(peerId);
     if (slot) {
@@ -619,7 +691,6 @@ export class VoiceRoom {
         this.kickHealth();
       };
     }
-    this.fadeGain(gain, this.audible(peerId));
     this.armMeter();
   }
 
@@ -629,30 +700,13 @@ export class VoiceRoom {
     return !!member && member.micOn && !member.forcedMute;
   }
 
-  /** Mute cuts quickly. Unmute eases in so the room doesn't pop. */
-  private fadeGain(gain: GainNode, on: boolean): void {
-    const target = on ? 1 : 0;
-    const ctx = this.ctx;
-    const param = gain.gain;
-    if (!ctx) {
-      param.value = target;
-      return;
-    }
-    const now = ctx.currentTime;
-    param.cancelScheduledValues(now);
-    const current = param.value;
-    param.setValueAtTime(current, now);
-    if (Math.abs(current - target) < 0.001) {
-      param.setValueAtTime(target, now);
-      return;
-    }
-    param.linearRampToValueAtTime(target, now + (on ? 0.18 : 0.04));
-  }
-
+  /** Mute cuts the speaker element. Unmute plays it on the same gesture path. */
   private applyGains(): void {
     for (const [id, node] of this.remotes) {
       const on = this.audible(id);
-      this.fadeGain(node.gain, on);
+      node.el.muted = !on;
+      node.el.volume = this.volume;
+      if (on) void node.el.play().catch(() => {});
       if (!on) {
         this.smooth.delete(id);
         this.setSpeaking(id, false, true);

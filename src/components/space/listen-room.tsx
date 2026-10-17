@@ -1,17 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MicOff } from "lucide-react";
-import { AnonymousSeat, JoinConversationButton, LevelBars, LiveMark, OpeningLine, RoomFrame, SourceLink, UnmuteRoomBar } from "@/components/space/chrome";
+import { AnonymousSeat, Face, JoinConversationButton, LevelBars, LiveMark, OpeningLine, RoomFrame, SourceLink, UnmuteRoomBar } from "@/components/space/chrome";
 import { MAX_LISTENERS, MAX_SPEAKERS, SPACE_STATUS, SPACE_TITLE } from "@/lib/space/constants";
 import { primeAudio } from "@/lib/space/voice-room";
 import type { LinkState, RoomHealth, VoiceMember } from "@/lib/space/voice-room";
 import { VoiceRoom } from "@/lib/space/voice-room";
 import type { AnonymousListener, ListenSnapshot, Person } from "@/lib/space/types";
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).slice(0, 2);
-  const letters = parts.map((part) => part[0] ?? "").join("");
-  return letters.toUpperCase() || "?";
-}
 
 function listenKey(body: ListenSnapshot): string {
   const members = body.members
@@ -230,13 +224,15 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
           {!snapshot && !error ? (
             <OpeningLine label="Opening the room…" />
           ) : stage.length > 0 ? (
-            <ul
-              className={
-                stage.length === 1
-                  ? "mt-8 grid grid-cols-1 justify-items-center"
-                  : "mt-8 grid grid-cols-3 gap-x-3 gap-y-6"
-              }
-            >
+              <ul
+                className={
+                  stage.length === 1
+                    ? "mt-8 grid grid-cols-1 justify-items-center"
+                    : stage.length === 2
+                      ? "mx-auto mt-8 grid w-full max-w-xs grid-cols-2 gap-x-6"
+                      : "mt-8 grid grid-cols-3 gap-x-3 gap-y-6"
+                }
+              >
               {stage.map((member) => {
                 const audible = member.micOn && !member.forcedMute && !roomMuted;
                 const level = levels[member.peerId] ?? 0;
@@ -255,7 +251,7 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
                       className={`level-ring relative rounded-full ${speakingNow ? "speak-ring" : ""}`}
                       style={{ ["--lvl" as string]: lvl.toFixed(2) }}
                     >
-                      <Portrait person={member} large={stage.length < 4} />
+                      <Face name={member.displayName} handle={member.handle} image={member.image} large={stage.length < 4} />
                       {!audible ? (
                         <span className="absolute -right-0.5 -bottom-0.5 grid size-6 place-items-center rounded-full bg-bg text-fg ring-1 ring-line">
                           <MicOff className="size-3.5" aria-hidden />
@@ -267,7 +263,9 @@ export function ListenRoom({ sessionPending = false }: { sessionPending?: boolea
                         />
                       ) : null}
                     </div>
-                    <span className="mt-2 block w-full truncate text-sm font-medium">{member.displayName}</span>
+                    <span className="mt-2 block w-full text-center text-sm font-medium leading-tight line-clamp-2">
+                      {member.displayName}
+                    </span>
                     <span className="block w-full truncate text-xs text-muted">@{member.handle}</span>
                     {member.isHost ? <span className="block text-xs text-muted">Host</span> : null}
                   </li>
@@ -336,7 +334,7 @@ const ListenerGrid = memo(function ListenerGrid({
         {named.map((member) => (
           <li key={member.peerId} className="min-w-0">
             <div className="flex w-full min-w-0 flex-col items-center text-center">
-              <Portrait person={member} large={false} />
+              <Face name={member.displayName} handle={member.handle} image={member.image} large={false} />
               <span className="mt-2 block w-full truncate text-xs font-medium">{member.displayName}</span>
               <span className="block w-full truncate text-xs text-muted">@{member.handle}</span>
             </div>
@@ -353,22 +351,3 @@ const ListenerGrid = memo(function ListenerGrid({
     </section>
   );
 });
-
-function Portrait({ person, large }: { person: Person; large: boolean }) {
-  const [broken, setBroken] = useState(false);
-  return (
-    <div
-      className={
-        large
-          ? "size-24 overflow-hidden rounded-full bg-elevated"
-          : "size-14 overflow-hidden rounded-full bg-elevated"
-      }
-    >
-      {person.image && !broken ? (
-        <img src={person.image} alt="" className="size-full object-cover" onError={() => setBroken(true)} />
-      ) : (
-        <span className="grid size-full place-items-center font-medium text-muted">{initials(person.displayName)}</span>
-      )}
-    </div>
-  );
-}

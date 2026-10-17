@@ -136,6 +136,14 @@ const grokAuthorizationUrl = `${issuerBase}/api/auth/oauth2/authorize`;
 const grokTokenUrl = `${issuerBase}/api/auth/oauth2/token`;
 const grokUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;
 
+function oauthPicture(profile: Record<string, unknown>): string | undefined {
+  const raw = [profile.image, profile.picture, profile.profile_image_url, profile.profile_image_url_https].find(
+    (value) => typeof value === "string" && value.startsWith("https://"),
+  );
+  if (typeof raw !== "string") return undefined;
+  return raw.replace(/_(normal|bigger|mini)(?=\.)/, "_400x400");
+}
+
 // Real Postgres when `DATABASE_URL` is set (deployed apps), else the app's
 // embedded PGLite (preview) via a Kysely dialect — so Better Auth persists to the
 // SAME DB as app data, including email/password users. Both use the Better Auth
@@ -162,6 +170,11 @@ const grokOAuthPlugin = authConfigured
         tokenUrl: grokTokenUrl,
         userInfoUrl: grokUserInfoUrl,
         scopes: ["openid", "profile", "email"],
+        overrideUserInfo: true,
+        mapProfileToUser: (profile) => {
+          const image = oauthPicture(profile as Record<string, unknown>);
+          return image ? { image } : {};
+        },
         // `prompt: "login"` forces the broker to re-authenticate against the
         // upstream on every sign-in instead of silently reusing an existing
         // broker session. Combined with the broker sending Google
